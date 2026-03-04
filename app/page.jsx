@@ -202,8 +202,8 @@ export default function Dashboard() {
       const res  = await fetch(`/api/analyze?category=${category}&minSales=${minSales}`)
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      const filtered = (data.results || []).filter(r => (r.ml?.opportunityScore || 0) >= 7)
-      setResults(filtered)
+      // Mostrar todos ordenados por score, los sin datos al final
+      const sorted = (data.results || []).sort((a,b) => (b.ml?.opportunityScore||0) - (a.ml?.opportunityScore||0)); setResults(sorted)
       setTotal(data.total || 0)
     } catch (e) {
       setError(e.message)
