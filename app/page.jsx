@@ -202,7 +202,8 @@ export default function Dashboard() {
       const res  = await fetch(`/api/analyze?category=${category}&minSales=${minSales}`)
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      setResults(data.results || [])
+      const filtered = (data.results || []).filter(r => (r.ml?.opportunityScore || 0) >= 7)
+      setResults(filtered)
       setTotal(data.total || 0)
     } catch (e) {
       setError(e.message)
@@ -294,7 +295,7 @@ export default function Dashboard() {
         ) : results.length > 0 ? (
           <div>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
-              <div style={{ color:'#374151', fontSize:10, letterSpacing:2 }}>RESULTADOS — ordenados por oportunidad en ML</div>
+              <div style={{ color:'#374151', fontSize:10, letterSpacing:2 }}>🟢 OPORTUNIDADES CON BAJA COMPETENCIA EN ML</div>
               <div style={{ flex:1, height:1, background:'#1f2937' }} />
               <div style={{ color:'#374151', fontSize:10 }}>Expandí para ver detalles →</div>
             </div>
@@ -304,7 +305,7 @@ export default function Dashboard() {
           <div style={{ textAlign:'center', padding:'60px 20px' }}>
             <div style={{ fontSize:48, marginBottom:16 }}>🎯</div>
             <div style={{ color:'#f9fafb', fontWeight:700, fontSize:16, marginBottom:8 }}>Elegí una categoría y clickeá Analizar</div>
-            <div style={{ color:'#6b7280', fontSize:13 }}>Lee Amazon Best Sellers en tiempo real y cruza con MercadoLibre Argentina</div>
+            <div style={{ color:'#6b7280', fontSize:13 }}>Analizá una categoría — solo vas a ver productos con baja competencia en ML Argentina</div>
           </div>
         )}
       </div>
