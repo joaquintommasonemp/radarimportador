@@ -1,101 +1,126 @@
 // app/api/keepa/route.js
-// Consulta la API de Keepa para traer productos con +1000 ventas/mes
-// Docs: https://keepa.com/#!discuss/t/request-products/161
+// Lee Amazon Best Sellers directamente — sin API key, sin costo
+// Páginas públicas actualizadas cada hora por Amazon
 
-// Mapeo de categorías a IDs de Amazon (rootCategory)
-const CATEGORY_MAP = {
-  'deco':     690080011,   // Home Décor
-  'hogar':    1055398,     // Home & Kitchen
-  'fitness':  3407801,     // Sports & Outdoors
-  'mascotas': 2619533011,  // Pet Supplies
-  'bebes':    165797011,   // Baby
+const CATEGORIES = {
+  deco:     { url: 'https://www.amazon.com/Best-Sellers-Home-Kitchen-Home-Dcor-Accents/zgbs/home-garden/1063306', label: 'Deco & Hogar' },
+  fitness:  { url: 'https://www.amazon.com/Best-Sellers-Sports-Outdoors-Exercise-Fitness/zgbs/sporting-goods/3407731', label: 'Fitness' },
+  mascotas: { url: 'https://www.amazon.com/Best-Sellers-Pet-Supplies/zgbs/pet-supplies', label: 'Mascotas' },
+  bebes:    { url: 'https://www.amazon.com/Best-Sellers-Baby/zgbs/baby-products', label: 'Bebés' },
 }
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url)
-  const category  = searchParams.get('category') || 'deco'
-  const minSales  = parseInt(searchParams.get('minSales') || '1000')
-  const apiKey    = process.env.KEEPA_API_KEY
-
-  if (!apiKey) {
-    return Response.json({ error: 'KEEPA_API_KEY no configurada en variables de entorno' }, { status: 500 })
-  }
-
-  const categoryId = CATEGORY_MAP[category] || CATEGORY_MAP['deco']
+  const category = searchParams.get('category') || 'deco'
+  const cat = CATEGORIES[category] || CATEGORIES.deco
 
   try {
-    // Keepa Product Finder — filtra por ventas mensuales estimadas y categoría
-    const params = new URLSearchParams({
-      key: apiKey,
-      domain: '1',           // Amazon.com (USA)
-      category: categoryId,
-      sortBy: '1',           // sort by sales rank
-      perPage: '50',
-      page: '0',
-      // Filtros de ventas mensuales (Keepa usa "monthlySold")
-      monthlySoldMin: minSales,
-      // Solo productos FBA o Amazon (más confiables)
-      isAmazon: '0',
-      hasReviews: '1',
-      // Excluir variantes
-      isParent: '1',
+    const res = await fetch(cat.url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      next: { revalidate: 3600 } // cache 1 hora
     })
 
-    const res = await fetch(
-      `https://api.keepa.com/query?${params}`,
-      { next: { revalidate: 3600 } } // cache 1 hora
-    )
-
     if (!res.ok) {
-      const errText = await res.text()
-      return Response.json({ error: `Keepa API error ${res.status}: ${errText}` }, { status: res.status })
+      return Response.json({ error: `Amazon respondió con error ${res.status}` }, { status: res.status })
     }
 
-    const data = await res.json()
+    const html = await res.text()
 
-    if (!data.asinList || data.asinList.length === 0) {
-      return Response.json({ products: [], total: 0 })
-    }
+    // Extraer productos del HTML de Best Sellers
+    const products = parseAmazonBestSellers(html, category)
 
-    // Buscar detalles de los productos encontrados
-    const asins = data.asinList.slice(0, 20).join(',')
-    const detailRes = await fetch(
-      `https://api.keepa.com/product?key=${apiKey}&domain=1&asin=${asins}&stats=1&offers=20`,
-      { next: { revalidate: 3600 } }
-    )
-
-    const detailData = await detailRes.json()
-    const products = (detailData.products || []).map(p => ({
-      asin:         p.asin,
-      title:        p.title,
-      brand:        p.brand,
-      image:        p.imagesCSV ? `https://images-na.ssl-images-amazon.com/images/I/${p.imagesCSV.split(',')[0]}` : null,
-      priceUSD:     p.stats?.current?.[1] ? (p.stats.current[1] / 100).toFixed(2) : null,
-      salesRank:    p.stats?.current?.[3] || null,
-      monthlySold:  p.monthlySold || null,
-      rating:       p.stats?.rating ? (p.stats.rating / 10).toFixed(1) : null,
-      reviews:      p.stats?.reviewCount || null,
-      weight:       p.packageWeight || null,   // gramos
-      category:     category,
-      amazonURL:    `https://www.amazon.com/dp/${p.asin}`,
-      // Búsqueda sugerida para ML (título simplificado)
-      mlQuery:      simplifyTitle(p.title),
-    }))
-
-    return Response.json({ products, total: data.total || products.length })
+    return Response.json({ products, total: products.length, category: cat.label })
 
   } catch (err) {
-    console.error('Keepa error:', err)
+    console.error('Amazon scrape error:', err)
     return Response.json({ error: err.message }, { status: 500 })
   }
 }
 
-function simplifyTitle(title = '') {
-  // Quita palabras en inglés muy específicas y deja lo útil para buscar en ML
+function parseAmazonBestSellers(html, category) {
+  const products = []
+
+  // Extraer bloques de producto — Amazon usa patrones consistentes en Best Sellers
+  const asinMatches = [...html.matchAll(/data-asin="([A-Z0-9]{10})"/g)]
+  const seen = new Set()
+
+  for (const match of asinMatches) {
+    const asin = match[1]
+    if (seen.has(asin) || !asin) continue
+    seen.add(asin)
+
+    // Buscar el bloque HTML alrededor de este ASIN
+    const pos = match.index
+    const block = html.substring(Math.max(0, pos - 200), pos + 2000)
+
+    // Título
+    const titleMatch = block.match(/class="[^"]*p13n-sc-[^"]*"[^>]*>\s*<span[^>]*>([^<]{10,150})<\/span>/)
+      || block.match(/alt="([^"]{10,150})"/)
+      || block.match(/title="([^"]{10,150})"/)
+    const title = titleMatch ? titleMatch[1].trim() : null
+    if (!title) continue
+
+    // Precio
+    const priceMatch = block.match(/\$(\d+\.?\d*)/)
+    const price = priceMatch ? parseFloat(priceMatch[1]) : null
+
+    // Rating
+    const ratingMatch = block.match(/([\d.]+) out of 5/)
+    const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null
+
+    // Imagen
+    const imgMatch = block.match(/src="(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/)
+    const image = imgMatch ? imgMatch[1] : null
+
+    // "bought in past month" — el dato clave
+    const boughtMatch = block.match(/([\d.]+[Kk]?)\+?\s*bought in past month/i)
+    const salesVolume = boughtMatch ? boughtMatch[0] : null
+    const monthlySold = salesVolume ? parseSales(boughtMatch[1]) : null
+
+    // Rank en best sellers
+    const rankMatch = block.match(/#(\d+)\s+in/)
+    const rank = rankMatch ? parseInt(rankMatch[1]) : products.length + 1
+
+    products.push({
+      asin,
+      title,
+      image,
+      priceUSD: price,
+      rating,
+      salesVolume,
+      monthlySold,
+      rank,
+      amazonURL: `https://www.amazon.com/dp/${asin}`,
+      mlQuery: simplifyForML(title),
+      category,
+    })
+
+    if (products.length >= 20) break
+  }
+
+  return products.sort((a, b) => (a.rank || 99) - (b.rank || 99))
+}
+
+function parseSales(str = '') {
+  if (!str) return null
+  const num = parseFloat(str)
+  const isK = str.toLowerCase().includes('k')
+  return isK ? num * 1000 : num
+}
+
+function simplifyForML(title = '') {
+  const stopWords = ['with', 'for', 'and', 'set', 'pack', 'piece', 'inch', 'premium', 'professional', 'the', 'of', 'in', 'a', 'an']
   return title
     .replace(/\(.*?\)/g, '')
     .replace(/\[.*?\]/g, '')
     .split(/[-,|]/)[0]
+    .split(' ')
+    .filter(w => w.length > 2 && !stopWords.includes(w.toLowerCase()))
+    .slice(0, 4)
+    .join(' ')
     .trim()
-    .substring(0, 60)
 }
