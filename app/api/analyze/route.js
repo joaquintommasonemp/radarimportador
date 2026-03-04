@@ -1,106 +1,129 @@
-
 // app/api/analyze/route.js
+// Nichos específicos curados para el mercado argentino
+// Actualizados: Marzo 2026
 
-// Traducción de términos comunes inglés → español para buscar en ML Argentina
-const TRANSLATIONS = {
-  'yoga mat': 'colchoneta yoga',
-  'resistance bands': 'bandas resistencia',
-  'massage gun': 'masajeador percusion',
-  'water fountain': 'bebedero automatico',
-  'dog toy': 'juguete perro',
-  'cat toy': 'juguete gato',
-  'pet bed': 'cama mascotas',
-  'pet grooming': 'cortapelos mascotas',
-  'baby monitor': 'monitor bebe',
-  'baby toy': 'juguete bebe',
-  'montessori': 'montessori',
-  'baby bath': 'bañera bebe',
-  'baby carrier': 'portabebe',
-  'wall decor': 'cuadro decorativo',
-  'candle holder': 'portavelas',
-  'picture frame': 'marco foto',
-  'home decor': 'decoracion hogar',
-  'kitchen organizer': 'organizador cocina',
-  'bamboo': 'bambu',
-  'vacuum sealer': 'envasadora vacio',
-  'air purifier': 'purificador aire',
-  'jump rope': 'soga saltar',
-  'fitness tracker': 'smartwatch fitness',
-  'storage': 'organizador',
-  'diffuser': 'difusor',
-  'humidifier': 'humidificador',
-  'led light': 'tira led',
-  'shower': 'ducha',
-  'towel': 'toalla',
-  'pillow': 'almohada',
-  'blanket': 'manta',
-  'bottle': 'botella',
-  'backpack': 'mochila',
-}
-
-function translateForML(title = '') {
-  let query = title
-    .replace(/\(.*?\)/g, '')
-    .replace(/\[.*?\]/g, '')
-    .split(/[-,|]/)[0]
-    .toLowerCase()
-    .trim()
-
-  // Intentar traducción directa de frases conocidas
-  for (const [en, es] of Object.entries(TRANSLATIONS)) {
-    if (query.includes(en)) {
-      query = query.replace(en, es)
-      break
-    }
-  }
-
-  // Quedarse con las primeras 3-4 palabras útiles
-  const stopWords = ['with', 'for', 'and', 'set', 'pack', 'piece', 'inch', 'premium', 'professional', 'the', 'of', 'in', 'a', 'an', 'new', 'best']
-  const words = query
-    .split(' ')
-    .filter(w => w.length > 2 && !stopWords.includes(w))
-    .slice(0, 3)
-
-  return words.join(' ').trim()
+const NICHOS = {
+  deco: [
+    "portavelas cemento minimalista",
+    "maceta geometrica concrete",
+    "difusor caña bambu hogar",
+    "bandeja decorativa madera ratán",
+    "espejo redondo boho pared",
+    "cesto seagrass organizador",
+    "marco fotos madera flotante",
+    "tapiz macrame pared bohemio",
+    "porta plantas colgante macrame",
+    "vela soja aromatica artesanal",
+    "organizador escritorio bambu",
+    "perchero pared madera minimalista",
+    "caja organizadora lino tapa",
+    "lampara mesa ratan bohemia",
+    "cuadro canvas minimalista líneas",
+    "bowl ceramica hecho a mano",
+    "jarron ceramica textura mate",
+    "porta servilletas madera natural",
+    "colgante pared plumas boho",
+    "set posavasos corcho grabado",
+  ],
+  fitness: [
+    "colchoneta yoga corcho antideslizante",
+    "bandas resistencia latex set 5",
+    "rueda abdominal doble rodamiento",
+    "foam roller texturado masaje",
+    "soga saltar crossfit speed",
+    "pelota pilates antiestallido 65cm",
+    "banda resistencia tela gluteos",
+    "tobilleras lastre par 2kg",
+    "manoplas boxeo muay thai principiante",
+    "cinturon levantamiento pesas neoprene",
+    "guantes fitness entrenamiento palma gel",
+    "comba saltar digital contador",
+    "rodillo masaje piernas recovery",
+    "porta agua gym acero inoxidable",
+    "mat yoga bolsa transporte incluida",
+    "banda cadera resistencia booty",
+    "timer intervalos entrenamiento",
+    "cuerda batalla battle rope 9m",
+    "soporte celular bicicleta fija",
+    "grip entrenamiento pull up",
+  ],
+  mascotas: [
+    "comedero lento perro silicona",
+    "cama ortopedica perro espuma memoria",
+    "juguete snuffle perro olfato",
+    "bebedero fuente gato silencioso",
+    "arnés reflectante perro mediano",
+    "cortauñas mascotas seguridad tope",
+    "cepillo autolimpiante pelo mascotas",
+    "juguete dispensador premios perro",
+    "arenero gato cubierto antiolor",
+    "portador gato avion aprobado",
+    "comedero elevado perro doble",
+    "collar antipulgas natural",
+    "juguete caña plumas gato",
+    "manta polar mascotas lavable",
+    "bolsa portasnacks entrenamiento perro",
+    "cepillo dientes perro dedal",
+    "rampa perro cama auto",
+    "bebedero portatil perro viaje",
+    "chaleco antiestres perro ansiedad",
+    "plato lamedor snack perro",
+  ],
+  bebes: [
+    "proyector musical cuna bebe",
+    "set mordillo silicona libre bpa",
+    "termometro frontal digital bebes",
+    "juguete montessori madera 1 año",
+    "bañera plegable recien nacido",
+    "hamaca portatil bebe viaje",
+    "set cepillo peine pelo bebe",
+    "babero silicona con bolsillo",
+    "cortauñas electrico seguro bebe",
+    "monitor bebes audio bidireccional",
+    "asiento bañera antideslizante",
+    "set cubiertos aprendizaje bebe",
+    "almohada lactancia multifuncion",
+    "porta chupete estuche esterilizador",
+    "juguete estimulacion temprana 0 6 meses",
+    "mochila maternal impermeable",
+    "cubre pañal tela reutilizable",
+    "termometro agua baño bebe",
+    "trampolin mini interior niños",
+    "kit higiene bebe set completo",
+  ],
 }
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url)
   const category = searchParams.get('category') || 'deco'
-  const minSales = searchParams.get('minSales') || '500'
   const base     = new URL(request.url).origin
 
+  const nichos = NICHOS[category] || NICHOS.deco
+
   try {
-    // 1. Traer productos de Amazon Best Sellers
-    const keepaRes  = await fetch(`${base}/api/keepa?category=${category}&minSales=${minSales}`)
-    const keepaData = await keepaRes.json()
-
-    if (keepaData.error) return Response.json({ error: keepaData.error }, { status: 500 })
-    if (!keepaData.products?.length) return Response.json({ results: [], total: 0 })
-
-    // 2. Consultar ML para cada producto en paralelo
-    const products = keepaData.products.slice(0, 20)
-
+    // Consultar ML para cada nicho en paralelo
     const results = await Promise.all(
-      products.map(async (product) => {
+      nichos.map(async (nicho) => {
         try {
-          // Traducir query al español para ML
-          const mlQuery = translateForML(product.title)
-          const mlRes   = await fetch(`${base}/api/ml?q=${encodeURIComponent(mlQuery)}`)
-          const mlData  = await mlRes.json()
-          return { ...product, mlQuery, ml: mlData }
+          const mlRes  = await fetch(`${base}/api/ml?q=${encodeURIComponent(nicho)}`)
+          const mlData = await mlRes.json()
+          return {
+            asin:       null,
+            title:      nicho.charAt(0).toUpperCase() + nicho.slice(1),
+            mlQuery:    nicho,
+            priceUSD:   null,
+            salesVolume: null,
+            amazonURL:  `https://www.amazon.com/s?k=${encodeURIComponent(nicho)}`,
+            ml:         mlData,
+          }
         } catch {
-          return { ...product, ml: null }
+          return { title: nicho, mlQuery: nicho, ml: null }
         }
       })
     )
 
-    // Ordenar: primero los de mayor oportunidad en ML
-    results.sort((a, b) => {
-      const scoreA = (a.ml?.opportunityScore || 0)
-      const scoreB = (b.ml?.opportunityScore || 0)
-      return scoreB - scoreA
-    })
+    // Ordenar: mayor oportunidad primero
+    results.sort((a, b) => (b.ml?.opportunityScore || 0) - (a.ml?.opportunityScore || 0))
 
     return Response.json({ results, total: results.length })
 
