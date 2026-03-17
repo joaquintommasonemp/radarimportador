@@ -185,6 +185,144 @@ function ProductRow({ product, index }) {
   )
 }
 
+
+function LinkAnalyzer() {
+  const [url,     setUrl]     = useState('')
+  const [product, setProduct] = useState(null)
+  const [mlData,  setMlData]  = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState('')
+
+  const analyze = async () => {
+    if (!url.trim()) return
+    setLoading(true)
+    setError('')
+    setProduct(null)
+    setMlData(null)
+
+    try {
+      // 1. Extraer producto de Amazon
+      const amzRes  = await fetch(`/api/amazon-product?url=${encodeURIComponent(url)}`)
+      const amzData = await amzRes.json()
+      if (amzData.error) throw new Error(amzData.error)
+      setProduct(amzData)
+
+      // 2. Buscar en ML Argentina
+      const query  = amzData.title.split(' ').slice(0, 5).join(' ')
+      const mlRes  = await fetch(`/api/ml?q=${encodeURIComponent(query)}`)
+      const ml     = await mlRes.json()
+      setMlData(ml)
+
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const sat = { virgen:'#10b981', baja:'#34d399', media:'#f59e0b', alta:'#ef4444' }
+  const satLabel = { virgen:'🔥 VIRGEN — NO ESTÁ EN ML', baja:'🟢 BAJA COMPETENCIA', media:'🟡 COMPETENCIA MEDIA', alta:'🔴 SATURADO' }
+
+  return (
+    <div style={{ background:'#0d1117', border:'2px solid #f59e0b44', borderRadius:16, padding:20, marginBottom:24 }}>
+      <div style={{ fontSize:10, letterSpacing:3, color:'#f59e0b', fontWeight:700, marginBottom:12 }}>🔗 ANALIZÁ UN PRODUCTO DE AMAZON</div>
+
+      <div style={{ display:'flex', gap:8, marginBottom: (product||error) ? 16 : 0 }}>
+        <input
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && analyze()}
+          placeholder="Pegá el link de Amazon acá..."
+          style={{ flex:1, padding:'11px 14px', background:'#060910', border:'1px solid #1f2937', borderRadius:10, color:'#f9fafb', fontSize:13, outline:'none' }}
+        />
+        <button onClick={analyze} disabled={loading || !url.trim()}
+          style={{ padding:'11px 24px', borderRadius:10, border:'none', background: url.trim() && !loading ? 'linear-gradient(90deg,#d97706,#f59e0b)' : '#1f2937', color: url.trim() && !loading ? '#000' : '#4b5563', fontWeight:800, fontSize:13, cursor: url.trim() && !loading ? 'pointer' : 'not-allowed', whiteSpace:'nowrap' }}>
+          {loading ? <><Spinner size={12} color="#888" />&nbsp;Analizando...</> : '🔍 Analizar'}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ background:'#7f1d1d22', border:'1px solid #ef444444', borderRadius:10, padding:'12px 14px', color:'#fca5a5', fontSize:13 }}>
+          ⚠️ {error}
+        </div>
+      )}
+
+      {product && (
+        <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:16, background:'#060910', borderRadius:12, padding:16, border:'1px solid #1f2937', marginBottom: mlData ? 12 : 0 }}>
+          {product.image && <img src={product.image} alt="" style={{ width:80, height:80, borderRadius:8, objectFit:'cover' }} />}
+          <div>
+            <div style={{ color:'#f9fafb', fontWeight:700, fontSize:14, marginBottom:6, lineHeight:1.4 }}>{product.title}</div>
+            <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+              {product.price && <span style={{ color:'#f59e0b', fontWeight:700, fontFamily:'monospace' }}>${product.price} USD</span>}
+              {product.salesVolume && <span style={{ background:'#10b98115', color:'#10b981', border:'1px solid #10b98133', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{product.salesVolume}</span>}
+              {product.rating && <span style={{ color:'#6b7280', fontSize:12 }}>⭐ {product.rating} ({product.reviews?.toLocaleString()} reseñas)</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mlData && product && (
+        <div style={{ background:'#060910', borderRadius:12, padding:16, border:`1px solid ${sat[mlData.saturation] || '#1f2937'}44` }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+            <div style={{ fontSize:10, letterSpacing:2, color:'#6b7280' }}>SITUACIÓN EN MERCADOLIBRE ARGENTINA</div>
+            <span style={{ color: sat[mlData.saturation], fontWeight:800, fontSize:13 }}>{satLabel[mlData.saturation] || mlData.saturation}</span>
+          </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:8, marginBottom:14 }}>
+            <div style={{ background:'#0d1117', borderRadius:10, padding:'12px' }}>
+              <div style={{ color:'#4b5563', fontSize:10, marginBottom:4 }}>PUBLICACIONES</div>
+              <div style={{ color: mlData.totalListings < 80 ? '#10b981' : mlData.totalListings < 400 ? '#f59e0b' : '#ef4444', fontWeight:800, fontSize:22, fontFamily:'monospace' }}>{mlData.totalListings?.toLocaleString('es-AR')}</div>
+            </div>
+            <div style={{ background:'#0d1117', borderRadius:10, padding:'12px' }}>
+              <div style={{ color:'#4b5563', fontSize:10, marginBottom:4 }}>PRECIO PROM. ML</div>
+              <div style={{ color:'#f59e0b', fontWeight:800, fontSize:18, fontFamily:'monospace' }}>${mlData.avgPrice?.toLocaleString('es-AR')}</div>
+            </div>
+            <div style={{ background:'#0d1117', borderRadius:10, padding:'12px' }}>
+              <div style={{ color:'#4b5563', fontSize:10, marginBottom:4 }}>ML LÍDERES</div>
+              <div style={{ color: mlData.goldSellers <= 2 ? '#10b981' : mlData.goldSellers <= 5 ? '#f59e0b' : '#ef4444', fontWeight:800, fontSize:22, fontFamily:'monospace' }}>{mlData.goldSellers}</div>
+            </div>
+            <div style={{ background:'#0d1117', borderRadius:10, padding:'12px' }}>
+              <div style={{ color:'#4b5563', fontSize:10, marginBottom:4 }}>OPORTUNIDAD</div>
+              <div style={{ color: mlData.opportunityScore >= 7 ? '#10b981' : mlData.opportunityScore >= 5 ? '#f59e0b' : '#ef4444', fontWeight:800, fontSize:22, fontFamily:'monospace' }}>{mlData.opportunityScore}/10</div>
+            </div>
+          </div>
+
+          {mlData.topListings?.length > 0 && (
+            <div style={{ marginBottom:14 }}>
+              <div style={{ color:'#374151', fontSize:10, letterSpacing:1, marginBottom:8 }}>LO QUE HAY HOY EN ML</div>
+              {mlData.topListings.map((item, i) => (
+                <a key={i} href={item.url} target="_blank" rel="noopener noreferrer"
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:8, marginBottom:5, background:'#111827', border:'1px solid #1f2937' }}>
+                  {item.thumbnail && <img src={item.thumbnail} alt="" style={{ width:32, height:32, borderRadius:5, objectFit:'cover' }} />}
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ color:'#d1d5db', fontSize:12, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                      {item.isGold && <span style={{ background:'#d97706', color:'#000', fontSize:9, padding:'1px 5px', borderRadius:3, marginRight:5, fontWeight:700 }}>MLÍDER</span>}
+                      {item.title}
+                    </div>
+                    {item.sold > 0 && <div style={{ color:'#4b5563', fontSize:10 }}>{item.sold} vendidos</div>}
+                  </div>
+                  <div style={{ color:'#f59e0b', fontWeight:700, fontSize:12, fontFamily:'monospace' }}>${item.price?.toLocaleString('es-AR')}</div>
+                </a>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display:'flex', gap:8 }}>
+            <a href={product.url} target="_blank" rel="noopener noreferrer"
+              style={{ flex:1, display:'block', textAlign:'center', padding:'10px', background:'#1f2937', borderRadius:10, color:'#f59e0b', fontWeight:700, fontSize:12, border:'1px solid #37415133' }}>
+              📦 Ver en Amazon ↗
+            </a>
+            <a href={`https://listado.mercadolibre.com.ar/${product.title.split(' ').slice(0,5).join('-')}`} target="_blank" rel="noopener noreferrer"
+              style={{ flex:1, display:'block', textAlign:'center', padding:'10px', background:'#166534', borderRadius:10, color:'#22c55e', fontWeight:700, fontSize:12, border:'1px solid #22c55e33' }}>
+              🛒 Ver en ML ARG ↗
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [category, setCategory] = useState('deco')
   const [minSales, setMinSales] = useState(1000)
@@ -231,6 +369,7 @@ export default function Dashboard() {
 
       <div style={{ maxWidth:960, margin:'24px auto', padding:'0 16px' }}>
 
+        <LinkAnalyzer />
         {/* Controls */}
         <div style={{ background:'#0d1117', border:'1px solid #1f2937', borderRadius:16, padding:20, marginBottom:20 }}>
           <div style={{ display:'flex', gap:16, alignItems:'flex-end', flexWrap:'wrap' }}>
@@ -312,3 +451,5 @@ export default function Dashboard() {
     </div>
   )
 }
+
+// This export is intentionally left empty to avoid syntax errors
